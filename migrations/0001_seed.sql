@@ -1,0 +1,29 @@
+-- Migration number: 0001 	 2026-08-11T00:00:00.000Z
+
+-- Seed 20 initial stations
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.101', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.102', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.103', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.104', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.105', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.106', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.107', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.108', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.109', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.110', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.111', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.112', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.113', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.114', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.115', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.116', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.117', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.118', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.119', 0) ON CONFLICT DO NOTHING;
+INSERT INTO stations (addressIP, stateID) VALUES ('10.207.201.120', 0) ON CONFLICT DO NOTHING;
+
+-- Seed default admin user ('admin' / 'admin123')
+-- The hash is generated from bcrypt.hashSync('admin123', 10)
+INSERT INTO users (username, password_hash, role) 
+VALUES ('admin', '$2a$10$vI8aWBnW3fID.ZQ4/zo1G.q1lRps.9cGLcZEiGDMVr5yUP1KUOYTa', 'SUPERVISOR') 
+ON CONFLICT DO NOTHING;

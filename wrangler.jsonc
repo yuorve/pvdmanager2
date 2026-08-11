@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pvd-manager",
+  "main": "server/index.js",
+  "compatibility_date": "2024-02-23",
+  "assets": {
+    "directory": "frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pvd-manager",
+      "database_id": "7c5069c6-0bc8-4356-a702-66612e09d4d9",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

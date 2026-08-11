@@ -1,0 +1,22 @@
+{
+  "name": "pvd-manager-root",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace=frontend && wrangler dev --port 3000",
+    "build": "npm run build --workspace=frontend"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.0",
+    "bcryptjs": "^3.0.3",
+    "hono": "^4.13.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260811.1",
+    "wrangler": "^4.120.1"
+  }
+}
