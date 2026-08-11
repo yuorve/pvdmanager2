@@ -21,7 +21,7 @@ async function authMiddleware(c, next) {
     
     try {
         const secret = c.env.JWT_SECRET || 'default_secret_for_development';
-        const decodedPayload = await verify(token, secret);
+        const decodedPayload = await verify(token, secret, "HS256");
         c.set('user', decodedPayload);
         await next();
     } catch (err) {
