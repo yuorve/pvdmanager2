@@ -117,7 +117,7 @@ function ActivityLog({ onBack }) {
                             activities.map((act) => (
                                 <tr key={act.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                     <td className="p-4 font-mono text-slate-500">
-                                        {new Date(act.created_at).toLocaleTimeString('es-ES')}
+                                        {new Date(act.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES')}
                                     </td>
                                     <td className="p-4 font-bold">{act.operator_id}</td>
                                     <td className="p-4">

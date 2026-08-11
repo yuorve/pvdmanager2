@@ -148,7 +148,7 @@ function UserManagement({ onBack }) {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <div className="text-xs text-slate-400 hidden sm:block">
-                                                {new Date(u.created_at).toLocaleDateString()}
+                                                {new Date(u.created_at.replace(' ', 'T') + 'Z').toLocaleDateString()}
                                             </div>
                                             {u.username !== 'admin' && (
                                                 <button

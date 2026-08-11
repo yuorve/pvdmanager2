@@ -156,7 +156,7 @@ app.get('/api/station', async (c) => {
         });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -198,6 +198,14 @@ app.post('/api/login', async (c) => {
         const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, secret);
 
         const stationIP = getStationIP(c);
+
+        const { results: activeStations } = await c.env.DB.prepare(
+            "SELECT addressIP FROM stations WHERE userID = ? COLLATE NOCASE"
+        ).bind(login).all();
+
+        if (activeStations.length > 0) {
+            return c.json({ error: 'ALREADY_LOGGED_IN', message: 'El usuario ya está conectado en otra estación.' }, 403);
+        }
         
         await c.env.DB.prepare(
             'UPDATE stations SET userID = ?, stateID = 1, timer = "00:00:00", timeSTAMP = CURRENT_TIMESTAMP WHERE addressIP = ?'
@@ -245,7 +253,7 @@ app.get('/api/pvd/schedule', async (c) => {
         return c.json({ hour, load, assignments: currentAssignments.length });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -300,7 +308,7 @@ app.post('/api/logout', async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -377,7 +385,7 @@ app.post('/api/command', authMiddleware, async (c) => {
         return c.json({ status: 'OK', state: newState });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -399,7 +407,7 @@ app.get('/api/stations', async (c) => {
         return c.json(response);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -433,7 +441,7 @@ app.get('/api/activity', authMiddleware, async (c) => {
         return c.json(rows);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -447,7 +455,7 @@ app.get('/api/users', authMiddleware, async (c) => {
         return c.json(rows);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -473,7 +481,7 @@ app.post('/api/users', authMiddleware, async (c) => {
             return c.json({ error: 'User already exists' }, 409);
         }
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -499,7 +507,7 @@ app.post('/api/change-password', authMiddleware, async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -522,7 +530,7 @@ app.delete('/api/users/:id', authMiddleware, async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -542,7 +550,7 @@ app.post('/api/stations', authMiddleware, async (c) => {
             return c.json({ error: 'Station IP already exists' }, 409);
         }
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -558,7 +566,7 @@ app.delete('/api/stations/:id', authMiddleware, async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 
@@ -597,7 +605,7 @@ app.get('/api/assignments', authMiddleware, async (c) => {
         return c.json(Array.from(userMap.values()));
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', message: err.message }, 500);
     }
 });
 

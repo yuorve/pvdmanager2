@@ -68,18 +68,24 @@ function PVDAssignments({ onBack }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {assignments.map((a) => (
+                                    {assignments.map((a) => {
+                                        const d = new Date();
+                                        d.setUTCHours(a.window_hour);
+                                        d.setUTCMinutes(a.start_minute);
+                                        const end = new Date(d);
+                                        end.setMinutes(end.getMinutes() + 7);
+                                        return (
                                         <tr key={a.id} className="border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950">
                                             <td className="p-3 font-medium text-slate-700 dark:text-slate-300">{a.operator_id}</td>
-                                            <td className="p-3 text-slate-600 dark:text-slate-400">{a.window_hour}:00</td>
+                                            <td className="p-3 text-slate-600 dark:text-slate-400">{d.getHours().toString().padStart(2, '0')}:00</td>
                                             <td className="p-3 font-mono text-indigo-600 dark:text-indigo-400">
-                                                {a.window_hour}:{formatMinute(a.start_minute)}
+                                                {d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                                             </td>
                                             <td className="p-3 font-mono text-slate-500">
-                                                {a.window_hour}:{formatMinute(a.start_minute + 7)}
+                                                {end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                                             </td>
                                         </tr>
-                                    ))}
+                                    )})}
                                 </tbody>
                             </table>
                         </div>

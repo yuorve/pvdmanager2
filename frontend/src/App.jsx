@@ -16,6 +16,7 @@ function App() {
     const [error, setError] = useState(null);
     const [loginInput, setLoginInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
+    const [loginError, setLoginError] = useState(null);
     const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || '');
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedStationIP, setSelectedStationIP] = useState(localStorage.getItem('station_ip') || '');
@@ -265,8 +266,9 @@ function App() {
 
     const handleLogin = async (e) => {
         e.preventDefault();
+        setLoginError(null);
         if (!selectedStationIP) {
-            alert('Por favor, selecciona una estación.');
+            setLoginError('Por favor, selecciona una estación.');
             return;
         }
         try {
@@ -288,7 +290,11 @@ function App() {
             }
             fetchData();
         } catch (err) {
-            alert('Error al iniciar sesión: Credenciales incorrectas');
+            if (err.response && err.response.data && err.response.data.error === 'ALREADY_LOGGED_IN') {
+                setLoginError('El usuario ya está logado en una estación. Cierra sesión primero.');
+            } else {
+                setLoginError('Contraseña incorrecta');
+            }
         }
     };
 
@@ -524,6 +530,12 @@ function App() {
                                             <h2 className="text-2xl font-bold">Bienvenido</h2>
                                             <p className="text-slate-500 dark:text-slate-400">Ingresa tu usuario para comenzar</p>
                                         </div>
+                                        {loginError && (
+                                            <div className="mb-6 bg-red-50 dark:bg-[#2a1318] border border-red-200 dark:border-[#4a1922] text-red-600 dark:text-[#ff5c5c] px-4 py-3 rounded-lg flex items-center gap-2">
+                                                <span className="material-icons text-[18px]">error</span>
+                                                <span className="font-medium text-sm">{loginError}</span>
+                                            </div>
+                                        )}
                                         <form onSubmit={handleLogin} className="space-y-6">
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Seleccionar Estación</label>
