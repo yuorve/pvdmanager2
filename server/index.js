@@ -5,6 +5,10 @@ import * as bcrypt from 'bcryptjs';
 import { assignPVD, calculateLoad } from './pvd.js';
 
 const app = new Hono();
+app.onError((err, c) => {
+  console.error("Global:", err);
+  return c.json({ err: err.message, stack: err.stack }, 500);
+});
 
 app.use('*', cors());
 
@@ -157,8 +161,10 @@ app.get('/api/station', async (c) => {
 
 // POST /api/login
 app.post('/api/login', async (c) => {
-    const { login, password } = await c.req.json();
+    let { login, password } = await c.req.json();
     if (!login || !password) return c.json({ error: 'Missing credentials' }, 400);
+
+    login = login.toLowerCase();
 
     // TEMPORARY FIX: If login is 'admin' and password is 'admin123', force update the hash in DB to correct one before checking
     if (login === 'admin' && password === 'admin123') {
@@ -205,7 +211,7 @@ app.post('/api/login', async (c) => {
         return c.json({ status: 'OK', token, role: user.role, pvd: pvdResult });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error' }, 500);
+        return c.json({ error: 'Database error', details: err.message, stack: err.stack }, 500);
     }
 });
 
