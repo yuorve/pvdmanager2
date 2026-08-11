@@ -167,13 +167,26 @@ app.post('/api/login', async (c) => {
     }
 
     try {
+        console.log(`[LOGIN TRACE] Attempting login for username: ${login}`);
+        console.log(`[LOGIN TRACE] Input password: ${password}`);
+
         const { results: users } = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(login).all();
+        
+        console.log(`[LOGIN TRACE] Database query results length: ${users.length}`);
+        if (users.length > 0) {
+            console.log(`[LOGIN TRACE] Found user in DB:`, JSON.stringify(users[0]));
+        }
+
         if (users.length === 0) return c.json({ error: 'Invalid credentials.' }, 401);
 
         const user = users[0];
         const validPass = await bcrypt.compare(password, user.password_hash);
+        
+        console.log(`[LOGIN TRACE] bcrypt.compare result for user ${login}: ${validPass}`);
+        
         if (!validPass) return c.json({ error: 'Invalid credentials' }, 401);
 
+        console.log(`[LOGIN TRACE] JWT_SECRET available: ${!!c.env.JWT_SECRET}`);
         const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, c.env.JWT_SECRET);
 
         const stationIP = getStationIP(c);
