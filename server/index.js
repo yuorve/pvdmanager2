@@ -20,7 +20,8 @@ async function authMiddleware(c, next) {
     if (!token) return c.body(null, 401);
     
     try {
-        const decodedPayload = await verify(token, c.env.JWT_SECRET);
+        const secret = c.env.JWT_SECRET || 'default_secret_for_development';
+        const decodedPayload = await verify(token, secret);
         c.set('user', decodedPayload);
         await next();
     } catch (err) {
@@ -193,7 +194,8 @@ app.post('/api/login', async (c) => {
         if (!validPass) return c.json({ error: 'Invalid credentials' }, 401);
 
         console.log(`[LOGIN TRACE] JWT_SECRET available: ${!!c.env.JWT_SECRET}`);
-        const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, c.env.JWT_SECRET);
+        const secret = c.env.JWT_SECRET || 'default_secret_for_development';
+        const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, secret);
 
         const stationIP = getStationIP(c);
         
