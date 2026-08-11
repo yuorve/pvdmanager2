@@ -204,7 +204,7 @@ app.post('/api/login', async (c) => {
         ).bind(login).all();
 
         if (activeStations.length > 0) {
-            return c.json({ error: 'ALREADY_LOGGED_IN', message: 'El usuario ya está conectado en otra estación.' }, 403);
+            return c.json({ error: 'ALREADY_LOGGED_IN', message: 'El usuario ya está conectado en otra estación.' }, 409);
         }
         
         await c.env.DB.prepare(

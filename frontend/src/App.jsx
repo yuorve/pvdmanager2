@@ -6,6 +6,7 @@ import UserManagement from './UserManagement';
 import StationManagement from './StationManagement';
 import PVDAssignments from './PVDAssignments';
 import ChangePassword from './ChangePassword';
+import { QRCodeSVG } from 'qrcode.react';
 
 axios.defaults.baseURL = '/api';
 
@@ -44,7 +45,11 @@ function App() {
         const interceptor = axios.interceptors.response.use(
             response => response,
             error => {
-                if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+                const originalRequest = error.config;
+                // Only trigger global logout/reload if this is not a login request
+                const isLoginRequest = originalRequest && originalRequest.url && originalRequest.url.includes('/login');
+                
+                if (!isLoginRequest && error.response && (error.response.status === 401 || error.response.status === 403)) {
                     // Token expired or invalid
                     localStorage.removeItem('auth_token');
                     localStorage.removeItem('user_role');
@@ -60,6 +65,7 @@ function App() {
     // TV Mode
     const searchParams = new URL(window.location.href).searchParams;
     const isTVMode = searchParams.get('tv') || window.location.pathname === '/tv';
+    const mobileStationIP = searchParams.get('mobile');
     const isWindows = navigator.userAgent.indexOf('Windows') !== -1;
 
     // Clock Logic
@@ -326,6 +332,19 @@ function App() {
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Cargando sistema...</div>;
 
+    if (mobileStationIP) {
+        const mobileIndex = allStations.findIndex(s => s.ip === mobileStationIP);
+        const mobileStation = mobileIndex !== -1 ? allStations[mobileIndex] : { ip: mobileStationIP, stateID: 0, login: null, timer: '00:00:00' };
+        
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+                <div className="w-full max-w-[320px]">
+                    <StationCard data={mobileStation} index={mobileIndex !== -1 ? mobileIndex : parseInt(mobileStationIP.split('.').pop()) - 101} />
+                </div>
+            </div>
+        );
+    }
+
     const isLogged = station?.usuario;
 
     // Stats calculation
@@ -512,6 +531,15 @@ function App() {
                                 >
                                     <span className="material-icons">logout</span> Salir
                                 </button>
+                                
+                                {isLogged && (
+                                    <div className="mt-8 flex flex-col items-center">
+                                        <p className="text-[10px] uppercase font-bold text-slate-500 mb-2 tracking-widest text-center">Enlace estación</p>
+                                        <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200">
+                                            <QRCodeSVG value={`${window.location.origin}?mobile=${station.ip}`} size={140} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </aside>
                     )}
@@ -593,38 +621,42 @@ function App() {
                                 </div>
                             ) : (
                                 <>
-                                    {/* Header Stats */}
-                                    <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-4">
-                                        <h2 className="text-2xl font-bold flex items-center gap-2">
-                                            <span className="material-icons text-slate-400">group</span>
-                                            Panel de Control
-                                        </h2>
+                                    {!isTVMode && (
+                                        <>
+                                            {/* Header Stats */}
+                                            <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-4">
+                                                <h2 className="text-2xl font-bold flex items-center gap-2">
+                                                    <span className="material-icons text-slate-400">group</span>
+                                                    Panel de Control
+                                                </h2>
 
-                                        {/* Mobile Logout */}
-                                        {isWindows && (
-                                            <div className="md:hidden absolute top-4 right-20">
-                                                <button
-                                                    onClick={handleLogout}
-                                                    disabled={station.stateID !== 1}
-                                                    className={`p-2 ${station.stateID === 1 ? 'text-rose-500' : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'}`}
-                                                >
-                                                    <span className="material-icons">logout</span>
-                                                </button>
+                                                {/* Mobile Logout */}
+                                                {isWindows && (
+                                                    <div className="md:hidden absolute top-4 right-20">
+                                                        <button
+                                                            onClick={handleLogout}
+                                                            disabled={station.stateID !== 1}
+                                                            className={`p-2 ${station.stateID === 1 ? 'text-rose-500' : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'}`}
+                                                        >
+                                                            <span className="material-icons">logout</span>
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex items-center gap-4 text-xs font-semibold px-4 py-2 bg-white dark:bg-slate-900 rounded-full shadow-sm border border-slate-200 dark:border-slate-800">
+                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-active"></span> Activos: {activeCount}</span>
+                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-break"></span> Pausados: {breakCount}</span>
+                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-inactive"></span> Disponibles: {idleCount}</span>
+                                                </div>
                                             </div>
-                                        )}
 
-                                        <div className="flex items-center gap-4 text-xs font-semibold px-4 py-2 bg-white dark:bg-slate-900 rounded-full shadow-sm border border-slate-200 dark:border-slate-800">
-                                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-active"></span> Activos: {activeCount}</span>
-                                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-break"></span> Pausados: {breakCount}</span>
-                                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-status-inactive"></span> Disponibles: {idleCount}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Timeline View */}
-                                    <Timeline
-                                        assignedSlot={pvdAssignment?.slot ?? null}
-                                        currentHour={currentTime.getHours()}
-                                    />
+                                            {/* Timeline View */}
+                                            <Timeline
+                                                assignedSlot={pvdAssignment?.slot ?? null}
+                                                currentHour={currentTime.getHours()}
+                                            />
+                                        </>
+                                    )}
 
                                     {/* Grid View - isMyStation ? 'contents' : 'hidden md:contents'*/}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 mt-6">
