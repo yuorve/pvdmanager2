@@ -162,7 +162,7 @@ app.post('/api/login', async (c) => {
 
     try {
         const { results: users } = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(login).all();
-        if (users.length === 0) return c.json({ error: 'Invalid credentials' }, 401);
+        if (users.length === 0) return c.json({ error: 'Invalid credentials.' }, 401);
 
         const user = users[0];
         const validPass = await bcrypt.compare(password, user.password_hash);
