@@ -337,9 +337,9 @@ function App() {
         const mobileStation = mobileIndex !== -1 ? allStations[mobileIndex] : { ip: mobileStationIP, stateID: 0, login: null, timer: '00:00:00' };
         
         return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
-                <div className="w-full max-w-[320px]">
-                    <StationCard data={mobileStation} index={mobileIndex !== -1 ? mobileIndex : parseInt(mobileStationIP.split('.').pop()) - 101} />
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
+                <div className="w-full max-w-sm">
+                    <MobileStationCard data={mobileStation} />
                 </div>
             </div>
         );
@@ -853,6 +853,125 @@ function CommandButtonMobile({ onClick, label, icon, color, active, disabled }) 
             <span className="material-icons text-2xl">{icon}</span>
             <span className="text-sm">{label}</span>
         </button>
+    )
+}
+
+function MobileStationCard({ data }) {
+    const { login, stateID, timer, ip } = data;
+    const isInactive = stateID == 0;
+
+    let isWarning = false;
+    let isCritical = false;
+
+    if (stateID > 1 && timer) { 
+        const isNegative = timer.startsWith('-');
+        const cleanTime = isNegative ? timer.substring(1) : timer;
+        const [h, m, s] = cleanTime.split(':').map(Number);
+        let totalSeconds = (h * 3600 + m * 60 + s);
+        if (isNegative) totalSeconds = -totalSeconds;
+
+        if (totalSeconds <= 0) {
+            isCritical = true;
+        } else if (totalSeconds <= 60) {
+            isWarning = true;
+        }
+    }
+
+    const stationId = ip.split('.').pop().slice(-2);
+
+    if (isInactive) {
+        return (
+            <div className="bg-slate-100/50 dark:bg-slate-800/30 p-8 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-700 relative w-full flex flex-col items-center justify-center min-h-[60vh] max-h-[80vh]">
+                <span className="absolute top-6 left-6 text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">ESTACIÓN {stationId}</span>
+                <div className="flex flex-col items-center opacity-40">
+                    <div className="mb-6 text-slate-400">
+                        <div className="w-40 h-40 rounded-full border-[3px] border-slate-300 dark:border-slate-600 flex items-center justify-center">
+                            <span className="material-icons text-[5rem]">desktop_windows</span>
+                        </div>
+                    </div>
+                    <h3 className="font-medium text-3xl italic mb-3">Disponible</h3>
+                    <p className="text-2xl font-mono">--:--:--</p>
+                </div>
+            </div>
+        )
+    }
+
+    let borderClass = 'border-slate-500';
+    let icon = 'help_outline';
+    let iconContainerClass = 'bg-slate-100 dark:bg-slate-800 text-slate-500';
+    let badgeClass = 'bg-slate-400';
+    let textClass = 'text-slate-500';
+    let cardBgClass = 'bg-white dark:bg-slate-900';
+    let animationClass = '';
+
+    if (stateID == 1) { // Active
+        borderClass = 'border-status-active';
+        icon = 'support_agent';
+        iconContainerClass = 'bg-green-50 dark:bg-green-900/20 text-status-active';
+        badgeClass = 'bg-status-active';
+        textClass = 'text-status-active';
+    } else if (stateID == 2) { // PVD
+        borderClass = 'border-yellow-500';
+        icon = 'desktop_windows';
+        iconContainerClass = 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600';
+        badgeClass = 'bg-yellow-500';
+        textClass = 'text-yellow-600';
+    } else if (stateID == 3) { // Break
+        borderClass = 'border-status-break';
+        icon = 'coffee';
+        iconContainerClass = 'bg-blue-50 dark:bg-blue-900/20 text-status-break';
+        badgeClass = 'bg-status-break';
+        textClass = 'text-status-break';
+    } else if (stateID == 4) { // Training
+        borderClass = 'border-status-training';
+        icon = 'school';
+        iconContainerClass = 'bg-amber-50 dark:bg-amber-900/20 text-status-training';
+        badgeClass = 'bg-status-training';
+        textClass = 'text-status-training';
+    } else if (stateID == 5) { // Gerencia
+        borderClass = 'border-indigo-500';
+        icon = 'admin_panel_settings';
+        iconContainerClass = 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500';
+        badgeClass = 'bg-indigo-500';
+        textClass = 'text-indigo-500';
+    } else if (stateID == 6) { // Suplencia
+        borderClass = 'border-pink-500';
+        icon = 'sync_alt';
+        iconContainerClass = 'bg-pink-50 dark:bg-pink-900/20 text-pink-500';
+        badgeClass = 'bg-pink-500';
+        textClass = 'text-pink-500';
+    }
+
+    if (isCritical) {
+        borderClass = 'border-red-600';
+        cardBgClass = 'bg-red-50 dark:bg-red-900/30';
+        textClass = 'text-red-600 dark:text-red-400 font-bold';
+        animationClass = 'animate-pulse';
+        iconContainerClass = 'bg-red-200 dark:bg-red-800 text-red-700';
+        badgeClass = 'bg-red-600 animate-ping';
+    } else if (isWarning) {
+        borderClass = 'border-orange-500';
+        cardBgClass = 'bg-orange-50 dark:bg-orange-900/20';
+        textClass = 'text-orange-600 dark:text-orange-400 font-bold';
+    }
+
+    return (
+        <div className={`${cardBgClass} p-8 rounded-3xl shadow-xl border-b-[12px] ${borderClass} hover:shadow-2xl transition-all relative w-full flex flex-col items-center justify-center min-h-[60vh] max-h-[80vh] ${animationClass}`}>
+            <span className="absolute top-6 left-6 text-sm font-black text-slate-300 dark:text-slate-500 uppercase tracking-widest">ESTACIÓN {stationId}</span>
+            <div className="flex flex-col items-center w-full">
+                <div className="relative mb-10">
+                    <div className={`w-40 h-40 rounded-full ${iconContainerClass} flex items-center justify-center`}>
+                        <span className="material-icons text-[5rem]">{icon}</span>
+                    </div>
+                    <div className={`absolute bottom-2 right-2 w-10 h-10 ${badgeClass} border-4 border-white dark:border-slate-900 rounded-full`}></div>
+                </div>
+                <h3 className="font-bold text-4xl tracking-tight uppercase text-center mb-8 break-all px-4">{login}</h3>
+                <div className={`flex items-center justify-center gap-3 text-4xl font-mono font-bold ${textClass} bg-slate-100 dark:bg-slate-800/50 py-4 px-6 rounded-2xl w-full max-w-[280px]`}>
+                    <span className="material-icons text-4xl">timer</span>
+                    {timer}
+                </div>
+            </div>
+        </div>
     )
 }
 
