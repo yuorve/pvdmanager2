@@ -1,101 +1,149 @@
 # PVD Manager - Dashboard v2.0
 
-**PVD Manager** is a real-time monitoring system designed to manage and visualize the status of workstations and user PVD (Data Visualization Pauses) assignments. It provides a comprehensive dashboard for supervisors and agents, ensuring compliance with break times and optimizing activity distribution.
+**PVD Manager** is a real-time monitoring and workstation management platform designed for operations centers, contact centers, and data-entry environments. It enables real-time tracking of operator workstation states, automated management of visual display terminal pauses (PVD - *Pantallas de Visualización de Datos*), and seamless mobile monitoring via dynamic QR codes.
 
-## Key Features
+---
 
-* **Real-Time Monitoring**: View the status of all workstations (Active, PVD, Break, Training, Management, Substitution) live.
-* **PVD Management**: Time control with support for countdown timers and visual/audio alerts.
-* **Audio and Visual Alerts**: Automatic critical notifications when break or activity time limits are reached (via `.mp3` audio).
-* **Supervisor Dashboard**: Exclusive tools for the supervisor role, including:
-  * Activity Log.
-  * User Management.
-  * Workstation Management.
-  * PVD Schedule Assignments.
-* **TV Interface (Screen Mode)**: Special view optimized for room monitors or TVs with no login required (`/tv`).
-* **Dark Theme Support**: Transition and persistence of light/dark UI for better visual ergonomics.
+## 🚀 Key Features
 
-## Technologies Used
+### 1. Real-Time Station Monitoring
+* Live dashboard displaying every workstation, operator name, current state, and elapsed or countdown timers.
+* Immediate color-coded status badges with visual/audio alerts when pause thresholds are exceeded.
+* Real-time timer calculation synced across clients and the backend.
+
+### 2. Workstation States
+| State ID | Name | Description |
+|---|---|---|
+| **0** | **Disponible / Inactivo** | Workstation is unassigned and open for login (`--:--:--`). |
+| **1** | **Activo** | Operator actively working at the station. |
+| **2** | **PVD** | Scheduled Visual Display Pause (7-minute interval with countdown timer). |
+| **3** | **Descanso** | Standard break / coffee pause. |
+| **4** | **Formación** | Training / coaching session. |
+| **5** | **Gerencia** | Management meeting or administrative tasks. |
+| **6** | **Suplencia** | Temporary station substitution / coverage. |
+
+### 3. Dedicated TV Mode (`/tv` or `?tv=true`)
+* Streamlined, distraction-free view designed specifically for large operational overhead displays and wall monitors.
+* Automatically conceals the control header counters and pause timelines, dedicating 100% of the screen real-estate to the workstation grid.
+
+### 4. Dynamic QR Code & Large Mobile View (`?mobile=<station_ip>`)
+* **Instant Operator Sync**: When an operator logs into their workstation on desktop, a QR code is rendered directly in the sidebar beneath quick actions.
+* **Scan & Go**: Scanning the QR code with any smartphone opens a lightweight, dedicated mobile view for that specific workstation without requiring menu navigation.
+* **High-Visibility Mobile Card**: Features an extra-large typography layout, prominent status badge, enlarged timer display, and alert animations designed for effortless at-a-glance readability on phones.
+* **Privacy & Auto-Reset**: When the operator logs out from their workstation, the mobile view automatically refreshes to display the station as "Disponible" (Available), safeguarding user privacy.
+
+### 5. PVD Slot Assignment & Timeline
+* Visual schedule timeline highlighting assigned 7-minute PVD intervals across the current shift hour.
+* Operator turn alerts displaying upcoming minute slots (e.g. `Tu turno: Minuto XX`).
+
+### 6. Supervisor Administration
+* **Activity Log**: Full audit trail recording state transitions, timestamps, and operator actions.
+* **User Management**: Create, view, update, and manage operator and supervisor credentials.
+* **Station Management**: Provision workstation IPs, define station aliases, and manage station status.
+* **PVD Schedule Assignment**: Assign and balance PVD break slots across operators for each hour window.
+
+### 7. Security & Conflict Guard
+* **Single Active Session Enforcement**: Detects if an operator is already logged in at another workstation, returning an HTTP `409 Conflict` to prevent split sessions while retaining clear UI feedback.
+* **JWT-Based Authentication**: Secure stateless token issuance with role-based access control (`OPERATOR` vs `SUPERVISOR`).
+* **Self-Service Password Changes**: Secure in-app password update modal for operators.
+
+---
+
+## 🛠️ Technology Stack
 
 ### Frontend
-* **[React 18](https://reactjs.org/)**: Library for building the user interface.
-* **[Vite](https://vitejs.dev/)**: Fast and optimized development environment for the modern web.
-* **[Tailwind CSS](https://tailwindcss.com/)**: Utility-first CSS framework for rapid and responsive design.
-* **Axios**: HTTP client for API requests.
+* **[React 18](https://react.dev/)**: Reactive UI architecture with hooks and modular components.
+* **[Vite](https://vitejs.dev/)**: Rapid bundler and local development server.
+* **[Tailwind CSS](https://tailwindcss.com/)**: Dark-mode enabled utility-first responsive styling.
+* **[qrcode.react](https://github.com/zpao/qrcode.react)**: SVG QR code generation for workstation pairing.
+* **[Axios](https://axios-http.com/)**: REST API communication with intelligent error interception.
 
-### Backend
-* **[Node.js](https://nodejs.org/) + [Express](https://expressjs.com/)**: Fast and minimalist RESTful API server.
-* **[MySQL 8.0](https://www.mysql.com/)**: Relational database to save history and metrics.
-* **JWT (JSON Web Tokens)**: Secure token-based authentication system.
-* **Bcrypt.js**: User password encryption.
+### Backend & Cloud Infrastructure
+* **[Hono](https://hono.dev/)**: Ultra-fast, lightweight web framework designed for edge runtimes.
+* **[Cloudflare Workers / Wrangler](https://developers.cloudflare.com/workers/)**: Serverless runtime and CLI for local development and edge deployment.
+* **[Cloudflare D1](https://developers.cloudflare.com/d1/)**: Serverless SQL database storing stations, users, logs, and PVD assignments.
+* **[bcryptjs](https://github.com/dcodeIO/bcrypt.js)**: Strong cryptographic password hashing.
+* **[jsonwebtoken](https://github.com/auth0/node-jsonwebtoken)**: JWT generation and verification.
 
-### Infrastructure / Deployment
-* **[Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)**: Containerization of services (API, Web Frontend, Database, Nginx Proxy, and Adminer).
-* **Nginx**: Reverse proxy to unify port 80 to the Frontend and API transparently.
+---
 
-## Project Structure
+## 📂 Project Structure
 
 ```
-pvd/
-├── frontend/       # React + Vite + Tailwind CSS client source code
-├── server/         # Node.js + Express backend API source code
-├── db/             # Database initialization scripts (init.sql)
-├── nginx/          # Nginx configuration files (default.conf)
-├── docker-compose.yml # Docker services composition for development/production
-└── README.md       # This document
+.
+├── frontend/                     # React + Vite client source code
+│   ├── src/
+│   │   ├── App.jsx               # Main dashboard, TV mode & MobileStationCard
+│   │   ├── Timeline.jsx          # PVD slot occupancy visual timeline
+│   │   ├── ActivityLog.jsx       # Supervisor audit trail & historical logs
+│   │   ├── UserManagement.jsx    # User CRUD & password administration
+│   │   ├── StationManagement.jsx # Workstation assignment & IP management
+│   │   ├── PVDAssignments.jsx    # Shift slot allocation grid
+│   │   ├── ChangePassword.jsx    # User self-service password update
+│   │   └── main.jsx              # React application entry point
+│   ├── package.json
+│   └── vite.config.js
+├── server/
+│   └── index.js                  # Hono REST API & Cloudflare D1 integration
+├── migrations/                   # D1 SQL database schema migrations
+│   ├── 0000_initial.sql          # Base tables (stations, users, pvd, activity)
+│   ├── 0001_seed.sql             # Default workstations & seed records
+│   └── 0002_fix_admin_password.sql
+├── package.json                  # Root workspace definition & build scripts
+├── wrangler.jsonc                # Cloudflare Workers & D1 database bindings
+├── .dev.vars                     # Local environment secrets (JWT_SECRET)
+└── README.md                     # Documentation
 ```
 
-## Installation and Setup (Docker)
+---
 
-The easiest way to run this application is using Docker Compose.
+## ⚙️ Getting Started & Local Development
 
-1. **Clone the project:**
-   ```bash
-   git clone <repository-url>
-   cd pvd
-   ```
+### Prerequisites
+* **Node.js**: v18.0.0 or higher
+* **npm**: v9.0.0 or higher
 
-2. **Configure Environment Variables:**
-   Make sure to configure or review the `.env` file in the project root for general configuration, and in the `./frontend` or `./server` folder if they have specific variables. The main variables used by Docker are:
-   * `DB_NAME`
-   * `DB_USER`
-   * `DB_PASS`
-   * `DB_ROOT_PASSWORD`
-   * `PORT_ADMINER`
+### 1. Install Dependencies
+Install all project dependencies across the root and workspace packages:
+```bash
+npm install
+```
 
-3. **Build and Run the Containers:**
-   Run the following command to build the local images and start all containers in the background:
-   ```bash
-   docker-compose up -d --build
-   ```
+### 2. Configure Environment Variables
+Create or verify `.dev.vars` in the project root:
+```env
+JWT_SECRET=super_secret_jwt_key_here
+```
 
-4. **Access the Application:**
-   * **Dashboard and Application (Frontend + API router)**: [http://localhost](http://localhost)
-   * **Database (Adminer)**: `http://localhost:<PORT_ADMINER>`
+### 3. Run D1 Database Migrations (Local)
+Apply the database migrations to your local Cloudflare D1 instance:
+```bash
+npx wrangler d1 migrations apply pvd-manager --local
+```
 
-## Local Development (Without Docker)
+### 4. Start Development Server
+Run the unified build and development server (starts on port `3000`):
+```bash
+npm run dev
+```
 
-If you want to keep the Database running in a container but start the Frontend and Backend locally and isolated from Docker:
+The application is now accessible at:
+* **Dashboard**: `http://localhost:3000`
+* **TV Mode**: `http://localhost:3000/tv` (or `http://localhost:3000/?tv=true`)
+* **Mobile Station View**: `http://localhost:3000/?mobile=<STATION_IP>`
 
-1. Start the Database:
-   ```bash
-   docker-compose up -d db
-   ```
-2. Install dependencies and run the Backend:
-   ```bash
-   cd server
-   npm install
-   npm run dev
-   ```
-3. Install dependencies and start the Frontend:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+---
 
-## License
-Copyright (c) 2026 Yury Leonardo Oropeza Veracierto
+## 🧪 Production Build
+
+To compile the frontend client for production deployment:
+```bash
+npm run build
+```
+This builds static assets into `frontend/dist`, which are automatically served by the Cloudflare Worker static assets binding specified in `wrangler.jsonc`.
+
+---
+
+## 📄 License
+Copyright (c) 2026 Yury Leonardo Oropeza Veracierto.  
 All rights reserved.
-The reproduction, distribution, modification or use of this software or any part of it, without the prior written authorization of the copyright owner, is strictly prohibited.
-THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
