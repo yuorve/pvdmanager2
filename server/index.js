@@ -174,26 +174,24 @@ app.post('/api/login', async (c) => {
     }
 
     try {
-        console.log(`[LOGIN TRACE] Attempting login for username: ${login}`);
-        console.log(`[LOGIN TRACE] Input password: ${password}`);
+        console.log('[AUTH] Processing authentication request');
 
         const { results: users } = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(login).all();
-        
-        console.log(`[LOGIN TRACE] Database query results length: ${users.length}`);
-        if (users.length > 0) {
-            console.log(`[LOGIN TRACE] Found user in DB:`, JSON.stringify(users[0]));
-        }
 
-        if (users.length === 0) return c.json({ error: 'Invalid credentials.' }, 401);
+        if (users.length === 0) {
+            console.warn('[AUTH] Authentication failed: user not found');
+            return c.json({ error: 'Invalid credentials.' }, 401);
+        }
 
         const user = users[0];
         const validPass = await bcrypt.compare(password, user.password_hash);
-        
-        console.log(`[LOGIN TRACE] bcrypt.compare result for user ${login}: ${validPass}`);
-        
-        if (!validPass) return c.json({ error: 'Invalid credentials' }, 401);
 
-        console.log(`[LOGIN TRACE] JWT_SECRET available: ${!!c.env.JWT_SECRET}`);
+        if (!validPass) {
+            console.warn('[AUTH] Authentication failed: invalid credentials');
+            return c.json({ error: 'Invalid credentials' }, 401);
+        }
+
+        console.log('[AUTH] Authentication successful');
         const secret = c.env.JWT_SECRET || 'default_secret_for_development';
         const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, secret);
 
@@ -323,13 +321,19 @@ app.post('/api/command', authMiddleware, async (c) => {
     try {
         const stationIP = getStationIP(c);
         const { results: rows } = await c.env.DB.prepare(
-            `SELECT stateID, CAST(strftime('%s', 'now') - strftime('%s', timeSTAMP) AS INTEGER) as elapsed FROM stations WHERE addressIP = ?`
+            `SELECT userID, stateID, CAST(strftime('%s', 'now') - strftime('%s', timeSTAMP) AS INTEGER) as elapsed FROM stations WHERE addressIP = ?`
         ).bind(stationIP).all();
         
         if (rows.length === 0) return c.json({ error: 'Station not found' }, 404);
         
-        const currentState = rows[0].stateID;
-        const elapsedSeconds = rows[0].elapsed;
+        const station = rows[0];
+        const isOwner = station.userID && station.userID.toLowerCase() === username.toLowerCase();
+        if (!isOwner) {
+            return c.json({ error: 'Forbidden', message: 'No tienes permiso para modificar esta estación.' }, 403);
+        }
+
+        const currentState = station.stateID;
+        const elapsedSeconds = station.elapsed;
 
         let newState = null;
         let newTimer = null;
@@ -368,18 +372,14 @@ app.post('/api/command', authMiddleware, async (c) => {
                 'UPDATE stations SET stateID = ?, timer = ?, timeSTAMP = CURRENT_TIMESTAMP WHERE addressIP = ?'
             ).bind(newState, newTimer, stationIP).run();
 
-            const { results: userRows } = await c.env.DB.prepare('SELECT userID FROM stations WHERE addressIP = ?').bind(stationIP).all();
-            
-            if (userRows.length > 0 && userRows[0].userID) {
-                let logDetails = `Command: ${cmd}`;
+            let logDetails = `Command: ${cmd}`;
 
-                if (newState === 1 && currentState > 1) {
-                    const durationStr = formatTime(elapsedSeconds);
-                    logDetails += ` | Duration: ${durationStr}`;
-                }
-
-                await logActivity(c.env.DB, userRows[0].userID, 'STATE_CHANGE', currentState, newState, logDetails);
+            if (newState === 1 && currentState > 1) {
+                const durationStr = formatTime(elapsedSeconds);
+                logDetails += ` | Duration: ${durationStr}`;
             }
+
+            await logActivity(c.env.DB, station.userID, 'STATE_CHANGE', currentState, newState, logDetails);
         }
 
         return c.json({ status: 'OK', state: newState });
