@@ -79,21 +79,37 @@ function findBestSlot(loadMap, minStartMinute = 0) {
 }
 
 
+import { getZonedParts } from './dateUtils.js';
+
+let pvdMutex = Promise.resolve();
+
 async function assignPVD(db, operatorId, timestamp = new Date()) {
-    const loginTime = new Date(timestamp);
-    const loginHour = loginTime.getHours();
-    const loginMinute = loginTime.getMinutes();
+    // Concurrency protection: serialize slot allocation to avoid collisions between simultaneous logins
+    const release = pvdMutex;
+    let nextResolve;
+    pvdMutex = new Promise(resolve => { nextResolve = resolve; });
+
+    try {
+        await release;
+        return await executeAssignPVD(db, operatorId, timestamp);
+    } finally {
+        nextResolve();
+    }
+}
+
+async function executeAssignPVD(db, operatorId, timestamp = new Date()) {
+    const zonedNow = getZonedParts(new Date(timestamp));
+    const loginHour = zonedNow.hour;
+    const loginMinute = zonedNow.minute;
 
     let targetHour = loginHour;
-    let targetDate = new Date(loginTime);
-    const dateStr = targetDate.toISOString().split('T')[0];
+    const dateStr = zonedNow.dateStr;
 
     const prevHour = (targetHour - 1 + 24) % 24;
     let prevDateStr = dateStr;
     if (targetHour === 0) {
-        const d = new Date(targetDate);
-        d.setDate(d.getDate() - 1);
-        prevDateStr = d.toISOString().split('T')[0];
+        const prevZoned = getZonedParts(new Date(new Date(timestamp).getTime() - 24 * 3600 * 1000));
+        prevDateStr = prevZoned.dateStr;
     }
 
     try {
@@ -110,7 +126,7 @@ async function assignPVD(db, operatorId, timestamp = new Date()) {
 
         let assignedMinute;
         let startHour = targetHour;
-        let startDate = new Date(targetDate);
+        let shiftDateStr = dateStr;
 
         if (myRows.length > 0) {
             assignedMinute = myRows[0].start_minute;
@@ -125,35 +141,41 @@ async function assignPVD(db, operatorId, timestamp = new Date()) {
                 startHour++;
                 if (startHour >= 24) {
                     startHour = 0;
-                    startDate.setDate(startDate.getDate() + 1);
+                    const nextZoned = getZonedParts(new Date(new Date(timestamp).getTime() + 24 * 3600 * 1000));
+                    shiftDateStr = nextZoned.dateStr;
                 }
             }
         }
 
         const shiftDuration = 10;
-        let currentLoopDate = new Date(startDate);
         let currentLoopHour = startHour;
+        let loopTimestamp = new Date(timestamp).getTime();
+        const batchStatements = [];
 
         for (let i = 0; i < shiftDuration; i++) {
-            const dateString = currentLoopDate.toISOString().split('T')[0];
+            const loopZoned = getZonedParts(new Date(loopTimestamp + (i * 3600 * 1000)));
 
-            await db.prepare(
-                `INSERT INTO pvd_assignments (operator_id, date, window_hour, start_minute) 
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT(operator_id, date, window_hour) DO UPDATE SET start_minute = excluded.start_minute`
-            ).bind(operatorId, dateString, currentLoopHour, assignedMinute).run();
+            batchStatements.push(
+                db.prepare(
+                    `INSERT INTO pvd_assignments (operator_id, date, window_hour, start_minute) 
+                     VALUES (?, ?, ?, ?)
+                     ON CONFLICT(operator_id, date, window_hour) DO UPDATE SET start_minute = excluded.start_minute`
+                ).bind(operatorId, loopZoned.dateStr, currentLoopHour, assignedMinute)
+            );
 
             currentLoopHour++;
             if (currentLoopHour >= 24) {
                 currentLoopHour = 0;
-                currentLoopDate.setDate(currentLoopDate.getDate() + 1);
             }
         }
+
+        // Execute all 10 assignment inserts atomically in a single transaction
+        await db.batch(batchStatements);
 
         return {
             slot: assignedMinute,
             hour: startHour,
-            date: startDate.toISOString().split('T')[0]
+            date: shiftDateStr
         };
 
     } catch (err) {

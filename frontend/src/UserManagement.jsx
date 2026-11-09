@@ -36,6 +36,16 @@ function UserManagement({ onBack }) {
             return;
         }
 
+        if (form.password.length < 8) {
+            setError('La contraseña debe tener al menos 8 caracteres');
+            return;
+        }
+
+        if (!/[A-Z]/.test(form.password) || !/[a-z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+            setError('La contraseña debe incluir mayúsculas, minúsculas y números');
+            return;
+        }
+
         try {
             await axios.post('/users', form);
             setSuccess('Usuario creado exitosamente');
@@ -44,8 +54,8 @@ function UserManagement({ onBack }) {
             // Clear success msg after 3s
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            if (err.response && err.response.data.error) {
-                setError(err.response.data.error);
+            if (err.response && err.response.data && (err.response.data.message || err.response.data.error)) {
+                setError(err.response.data.message || err.response.data.error);
             } else {
                 setError('Error al crear usuario');
             }

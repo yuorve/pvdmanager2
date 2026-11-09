@@ -19,8 +19,23 @@ function ChangePassword({ onClose }) {
             return;
         }
 
-        if (newPassword.length < 4) {
-            setError('La contraseña debe tener al menos 4 caracteres');
+        if (newPassword.length < 8) {
+            setError('La contraseña debe tener al menos 8 caracteres');
+            return;
+        }
+
+        if (!/[A-Z]/.test(newPassword)) {
+            setError('La contraseña debe incluir al menos una letra mayúscula');
+            return;
+        }
+
+        if (!/[a-z]/.test(newPassword)) {
+            setError('La contraseña debe incluir al menos una letra minúscula');
+            return;
+        }
+
+        if (!/[0-9]/.test(newPassword)) {
+            setError('La contraseña debe incluir al menos un número');
             return;
         }
 
@@ -31,13 +46,12 @@ function ChangePassword({ onClose }) {
                 newPassword
             });
             setSuccess('Contraseña actualizada correctamente');
-            // Clear fields but keep modal open
             setCurrentPassword('');
             setNewPassword('');
             setConfirmPassword('');
         } catch (err) {
-            if (err.response && err.response.data.error) {
-                setError(err.response.data.error);
+            if (err.response && err.response.data && (err.response.data.message || err.response.data.error)) {
+                setError(err.response.data.message || err.response.data.error);
             } else {
                 setError('Error al cambiar la contraseña');
             }
@@ -93,6 +107,7 @@ function ChangePassword({ onClose }) {
                             className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                             required
                         />
+                        <p className="text-[11px] text-slate-500 mt-1">Mínimo 8 caracteres, incluyendo mayúsculas, minúsculas y números.</p>
                     </div>
 
                     <div>

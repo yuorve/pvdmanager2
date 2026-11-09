@@ -3,21 +3,71 @@ import { cors } from 'hono/cors';
 import { sign, verify } from 'hono/jwt';
 import * as bcrypt from 'bcryptjs';
 import { assignPVD, calculateLoad } from './pvd.js';
+import { getZonedParts } from './dateUtils.js';
 
 const app = new Hono();
+
+// Global Generic Error Handler (never leaks stack trace or database internals)
 app.onError((err, c) => {
-  console.error("Global:", err);
-  return c.json({ err: err.message, stack: err.stack }, 500);
+    console.error("Internal Server Error:", err);
+    return c.json({ error: 'Internal Server Error', message: 'Ha ocurrido un error en el servidor.' }, 500);
 });
 
 app.use('*', cors());
+
+// Rate Limiting Store for Login Attempts
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+function checkLoginRateLimit(key) {
+    const now = Date.now();
+    const entry = loginAttempts.get(key);
+    if (!entry) return { allowed: true };
+
+    if (now > entry.resetAt) {
+        loginAttempts.delete(key);
+        return { allowed: true };
+    }
+
+    if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+        const remainingMinutes = Math.ceil((entry.resetAt - now) / 60000);
+        return { allowed: false, remainingMinutes };
+    }
+
+    return { allowed: true };
+}
+
+function recordFailedLogin(key) {
+    const now = Date.now();
+    const entry = loginAttempts.get(key);
+    if (!entry || now > entry.resetAt) {
+        loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_LOCKOUT_MS });
+    } else {
+        entry.count++;
+    }
+}
+
+function clearLoginRateLimit(key) {
+    loginAttempts.delete(key);
+}
+
+// Password Policy: Min 8 chars, at least 1 uppercase, 1 lowercase, 1 digit
+function validatePasswordStrength(password) {
+    if (!password || typeof password !== 'string') return false;
+    if (password.length < 8) return false;
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    return hasUpper && hasLower && hasNumber;
+}
 
 // Authentication Middleware
 async function authMiddleware(c, next) {
     const authHeader = c.req.header('authorization');
     const token = authHeader && authHeader.split(' ')[1];
     
-    if (!token) return c.body(null, 401);
+    if (!token) return c.json({ error: 'Unauthorized', message: 'Token de autenticación requerido.' }, 401);
     
     try {
         const secret = c.env.JWT_SECRET || 'default_secret_for_development';
@@ -25,13 +75,12 @@ async function authMiddleware(c, next) {
         c.set('user', decodedPayload);
         await next();
     } catch (err) {
-        return c.body(null, 403);
+        return c.json({ error: 'Forbidden', message: 'Token inválido o expirado.' }, 403);
     }
 }
 
 // Global IP middleware
 app.use(async (c, next) => {
-    // Cloudflare specific IP header, fallback to something else if needed
     const ip = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || '127.0.0.1';
     c.set('clientIp', ip);
     
@@ -80,7 +129,7 @@ function parseSeconds(timeString) {
 }
 
 function calculateRealTimer(row) {
-    const elapsed = parseInt(row.elapsed) || 0;
+    const elapsed = parseInt(row.elapsed, 10) || 0;
     if (row.stateID == 0) return '00:00:00';
     if (row.stateID == 1) {
         return formatTime(elapsed);
@@ -111,11 +160,12 @@ app.get('/api/station', async (c) => {
 
         let pvdAssignment = null;
         if (station.userID) {
-            const now = new Date();
-            const currentHour = now.getHours();
-            const currentMinute = now.getMinutes();
+            // Unify timezone across hour, minute, and date
+            const zoned = getZonedParts(new Date());
+            const currentHour = zoned.hour;
+            const currentMinute = zoned.minute;
             const currentTotalMinutes = currentHour * 60 + currentMinute;
-            const dateStr = now.toISOString().split('T')[0];
+            const dateStr = zoned.dateStr;
 
             const { results: pvdRows } = await c.env.DB.prepare(
                 `SELECT window_hour, start_minute FROM pvd_assignments 
@@ -156,21 +206,26 @@ app.get('/api/station', async (c) => {
         });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al consultar la estación.' }, 500);
     }
 });
 
 // POST /api/login
 app.post('/api/login', async (c) => {
     let { login, password } = await c.req.json();
-    if (!login || !password) return c.json({ error: 'Missing credentials' }, 400);
+    if (!login || !password) return c.json({ error: 'Missing credentials', message: 'Credenciales incompletas.' }, 400);
 
     login = login.toLowerCase();
 
-    // TEMPORARY FIX: If login is 'admin' and password is 'admin123', force update the hash in DB to correct one before checking
-    if (login === 'admin' && password === 'admin123') {
-        const correctHash = '$2b$10$sld9c31jQMt/ZX47CUrH9eM8kw9G5K9qTG0rfJlpUcIJM5wQTj1vS';
-        await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE username = 'admin'").bind(correctHash).run();
+    // Check rate limit by IP + login identifier
+    const clientIP = c.get('clientIp') || 'unknown';
+    const rateLimitKey = `${clientIP}:${login}`;
+    const rateCheck = checkLoginRateLimit(rateLimitKey);
+    if (!rateCheck.allowed) {
+        return c.json({
+            error: 'TOO_MANY_ATTEMPTS',
+            message: `Demasiados intentos de acceso fallidos. Por favor, espere ${rateCheck.remainingMinutes} minuto(s).`
+        }, 429);
     }
 
     try {
@@ -179,19 +234,24 @@ app.post('/api/login', async (c) => {
         const { results: users } = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(login).all();
 
         if (users.length === 0) {
+            recordFailedLogin(rateLimitKey);
             console.warn('[AUTH] Authentication failed: user not found');
-            return c.json({ error: 'Invalid credentials.' }, 401);
+            return c.json({ error: 'Invalid credentials.', message: 'Credenciales inválidas.' }, 401);
         }
 
         const user = users[0];
         const validPass = await bcrypt.compare(password, user.password_hash);
 
         if (!validPass) {
+            recordFailedLogin(rateLimitKey);
             console.warn('[AUTH] Authentication failed: invalid credentials');
-            return c.json({ error: 'Invalid credentials' }, 401);
+            return c.json({ error: 'Invalid credentials', message: 'Credenciales inválidas.' }, 401);
         }
 
+        // Clear failed attempts counter upon successful login
+        clearLoginRateLimit(rateLimitKey);
         console.log('[AUTH] Authentication successful');
+
         const secret = c.env.JWT_SECRET || 'default_secret_for_development';
         const token = await sign({ username: user.username, role: user.role, exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }, secret);
 
@@ -219,23 +279,22 @@ app.post('/api/login', async (c) => {
         return c.json({ status: 'OK', token, role: user.role, pvd: pvdResult });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', details: err.message, stack: err.stack }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno durante el inicio de sesión.' }, 500);
     }
 });
 
 // GET /api/pvd/schedule
 app.get('/api/pvd/schedule', async (c) => {
     try {
-        const now = new Date();
-        const hour = now.getHours();
-        const dateStr = now.toISOString().split('T')[0];
+        const zoned = getZonedParts(new Date());
+        const hour = zoned.hour;
+        const dateStr = zoned.dateStr;
 
         const prevHour = (hour - 1 + 24) % 24;
         let prevDateStr = dateStr;
         if (hour === 0) {
-            const d = new Date(now);
-            d.setDate(d.getDate() - 1);
-            prevDateStr = d.toISOString().split('T')[0];
+            const prevZoned = getZonedParts(new Date(Date.now() - 24 * 3600 * 1000));
+            prevDateStr = prevZoned.dateStr;
         }
 
         const { results: rows } = await c.env.DB.prepare(
@@ -251,20 +310,33 @@ app.get('/api/pvd/schedule', async (c) => {
         return c.json({ hour, load, assignments: currentAssignments.length });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error al consultar la planificación de descansos.' }, 500);
     }
 });
 
 // POST /api/logout
-app.post('/api/logout', async (c) => {
+app.post('/api/logout', authMiddleware, async (c) => {
     try {
+        const user = c.get('user');
+        const username = user.username;
         const stationIP = getStationIP(c);
 
         const { results: rows } = await c.env.DB.prepare('SELECT userID, stateID FROM stations WHERE addressIP = ?').bind(stationIP).all();
 
-        if (rows.length > 0 && rows[0].userID) {
-            const userID = rows[0].userID;
-            const currentState = rows[0].stateID;
+        if (rows.length === 0) {
+            return c.json({ error: 'Station not found', message: 'Estación no encontrada.' }, 404);
+        }
+
+        const station = rows[0];
+
+        // Ensure caller is the owner of the station (or supervisor)
+        if (station.userID && station.userID.toLowerCase() !== username.toLowerCase() && user.role !== 'SUPERVISOR') {
+            return c.json({ error: 'Forbidden', message: 'No tienes permiso para cerrar la sesión de esta estación.' }, 403);
+        }
+
+        if (station.userID) {
+            const userID = station.userID;
+            const currentState = station.stateID;
             
             const { results: assignments } = await c.env.DB.prepare(
                 `SELECT id, date, window_hour, start_minute 
@@ -306,14 +378,20 @@ app.post('/api/logout', async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al cerrar la sesión.' }, 500);
     }
 });
 
 // POST /api/command
 app.post('/api/command', authMiddleware, async (c) => {
     const { c: cmd, t } = await c.req.json();
-    if (!cmd) return c.json({ error: 'Missing command' }, 400);
+    if (!cmd) return c.json({ error: 'Missing command', message: 'Comando requerido.' }, 400);
+
+    // Whitelist valid command types
+    const ALLOWED_COMMANDS = ['activo', 'pvd', 'pause', 'formacion', 'gerencia', 'suplencia'];
+    if (!ALLOWED_COMMANDS.includes(cmd)) {
+        return c.json({ error: 'Invalid command', message: 'Comando no reconocido.' }, 400);
+    }
 
     const user = c.get('user');
     const username = user.username;
@@ -324,7 +402,7 @@ app.post('/api/command', authMiddleware, async (c) => {
             `SELECT userID, stateID, CAST(strftime('%s', 'now') - strftime('%s', timeSTAMP) AS INTEGER) as elapsed FROM stations WHERE addressIP = ?`
         ).bind(stationIP).all();
         
-        if (rows.length === 0) return c.json({ error: 'Station not found' }, 404);
+        if (rows.length === 0) return c.json({ error: 'Station not found', message: 'Estación no encontrada.' }, 404);
         
         const station = rows[0];
         const isOwner = station.userID && station.userID.toLowerCase() === username.toLowerCase();
@@ -351,7 +429,19 @@ app.post('/api/command', authMiddleware, async (c) => {
             shouldSave = true;
         } else if (cmd === 'pause' && currentState === 1) {
             newState = 3;
-            newTimer = t ? `00:${t}:00` : '00:05:00';
+            // Strict input validation: duration must be integer between 1 and 60 minutes
+            let pauseMinutes = 5;
+            if (t !== undefined && t !== null && t !== '') {
+                const parsed = parseInt(t, 10);
+                if (isNaN(parsed) || parsed < 1 || parsed > 60) {
+                    return c.json({
+                        error: 'Invalid duration',
+                        message: 'La duración del descanso debe ser un número entero entre 1 y 60 minutos.'
+                    }, 400);
+                }
+                pauseMinutes = parsed;
+            }
+            newTimer = `00:${String(pauseMinutes).padStart(2, '0')}:00`;
             shouldSave = true;
         } else if (cmd === 'formacion' && currentState === 1) {
             newState = 4;
@@ -385,7 +475,7 @@ app.post('/api/command', authMiddleware, async (c) => {
         return c.json({ status: 'OK', state: newState });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al procesar el comando.' }, 500);
     }
 });
 
@@ -407,14 +497,14 @@ app.get('/api/stations', async (c) => {
         return c.json(response);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al consultar las estaciones.' }, 500);
     }
 });
 
 // GET /api/activity
 app.get('/api/activity', authMiddleware, async (c) => {
     const user = c.get('user');
-    if (user.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (user.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
 
     try {
         const date = c.req.query('date');
@@ -441,31 +531,39 @@ app.get('/api/activity', authMiddleware, async (c) => {
         return c.json(rows);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al consultar la actividad.' }, 500);
     }
 });
 
 // GET /api/users
 app.get('/api/users', authMiddleware, async (c) => {
     const user = c.get('user');
-    if (user.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (user.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     try {
         const { results: rows } = await c.env.DB.prepare('SELECT id, username, role, created_at FROM users ORDER BY created_at DESC').all();
         return c.json(rows);
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al consultar los usuarios.' }, 500);
     }
 });
 
 // POST /api/users
 app.post('/api/users', authMiddleware, async (c) => {
     const userContext = c.get('user');
-    if (userContext.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (userContext.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     const { username, password, role } = await c.req.json();
-    if (!username || !password) return c.json({ error: 'Missing fields' }, 400);
+    if (!username || !password) return c.json({ error: 'Missing fields', message: 'Todos los campos son obligatorios.' }, 400);
+
+    // Enforce robust password policy
+    if (!validatePasswordStrength(password)) {
+        return c.json({
+            error: 'Weak password',
+            message: 'La contraseña debe tener al menos 8 caracteres e incluir mayúsculas, minúsculas y números.'
+        }, 400);
+    }
 
     try {
         const hash = await bcrypt.hash(password, 10);
@@ -477,29 +575,37 @@ app.post('/api/users', authMiddleware, async (c) => {
         
         return c.json({ status: 'OK' });
     } catch (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-            return c.json({ error: 'User already exists' }, 409);
+        if (err.message && err.message.includes('UNIQUE constraint failed')) {
+            return c.json({ error: 'User already exists', message: 'El usuario ya existe.' }, 409);
         }
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al crear el usuario.' }, 500);
     }
 });
 
 // POST /api/change-password
 app.post('/api/change-password', authMiddleware, async (c) => {
     const { currentPassword, newPassword } = await c.req.json();
-    if (!currentPassword || !newPassword) return c.json({ error: 'Missing fields' }, 400);
+    if (!currentPassword || !newPassword) return c.json({ error: 'Missing fields', message: 'Todos los campos son obligatorios.' }, 400);
+
+    // Enforce robust password policy
+    if (!validatePasswordStrength(newPassword)) {
+        return c.json({
+            error: 'Weak password',
+            message: 'La nueva contraseña debe tener al menos 8 caracteres e incluir mayúsculas, minúsculas y números.'
+        }, 400);
+    }
 
     try {
         const userContext = c.get('user');
         const username = userContext.username;
         
         const { results: users } = await c.env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).all();
-        if (users.length === 0) return c.json({ error: 'User not found' }, 404);
+        if (users.length === 0) return c.json({ error: 'User not found', message: 'Usuario no encontrado.' }, 404);
 
         const user = users[0];
         const validPass = await bcrypt.compare(currentPassword, user.password_hash);
-        if (!validPass) return c.json({ error: 'La contraseña actual es incorrecta' }, 400);
+        if (!validPass) return c.json({ error: 'Invalid current password', message: 'La contraseña actual es incorrecta.' }, 400);
 
         const newHash = await bcrypt.hash(newPassword, 10);
         await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(newHash, user.id).run();
@@ -507,57 +613,57 @@ app.post('/api/change-password', authMiddleware, async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al cambiar la contraseña.' }, 500);
     }
 });
 
 // DELETE /api/users/:id
 app.delete('/api/users/:id', authMiddleware, async (c) => {
     const userContext = c.get('user');
-    if (userContext.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (userContext.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     const userId = c.req.param('id');
 
     try {
         const { results: users } = await c.env.DB.prepare('SELECT username FROM users WHERE id = ?').bind(userId).all();
-        if (users.length === 0) return c.json({ error: 'User not found' }, 404);
+        if (users.length === 0) return c.json({ error: 'User not found', message: 'Usuario no encontrado.' }, 404);
 
         if (users[0].username === 'admin') {
-            return c.json({ error: 'Cannot delete admin user' }, 403);
+            return c.json({ error: 'Forbidden', message: 'No se puede eliminar el usuario administrador.' }, 403);
         }
 
         await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al eliminar el usuario.' }, 500);
     }
 });
 
 // POST /api/stations
 app.post('/api/stations', authMiddleware, async (c) => {
     const userContext = c.get('user');
-    if (userContext.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (userContext.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     const { ip } = await c.req.json();
-    if (!ip) return c.json({ error: 'Missing IP' }, 400);
+    if (!ip) return c.json({ error: 'Missing IP', message: 'La dirección IP es obligatoria.' }, 400);
 
     try {
         await c.env.DB.prepare('INSERT INTO stations (addressIP, stateID) VALUES (?, 0)').bind(ip).run();
         return c.json({ status: 'OK' });
     } catch (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-            return c.json({ error: 'Station IP already exists' }, 409);
+        if (err.message && err.message.includes('UNIQUE constraint failed')) {
+            return c.json({ error: 'Station IP already exists', message: 'La IP de la estación ya existe.' }, 409);
         }
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al crear la estación.' }, 500);
     }
 });
 
 // DELETE /api/stations/:id
 app.delete('/api/stations/:id', authMiddleware, async (c) => {
     const userContext = c.get('user');
-    if (userContext.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (userContext.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     const stationId = c.req.param('id');
 
@@ -566,28 +672,28 @@ app.delete('/api/stations/:id', authMiddleware, async (c) => {
         return c.json({ status: 'OK' });
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al eliminar la estación.' }, 500);
     }
 });
 
 // GET /api/assignments
 app.get('/api/assignments', authMiddleware, async (c) => {
     const userContext = c.get('user');
-    if (userContext.role !== 'SUPERVISOR') return c.body(null, 403);
+    if (userContext.role !== 'SUPERVISOR') return c.json({ error: 'Forbidden', message: 'Acceso denegado.' }, 403);
     
     const dateParam = c.req.query('date');
 
     try {
-        const targetDateStr = dateParam || new Date().toISOString().split('T')[0];
+        const zoned = getZonedParts(new Date());
+        const currentDateStr = zoned.dateStr;
+        const targetDateStr = dateParam || currentDateStr;
 
         const { results: rows } = await c.env.DB.prepare(
             'SELECT * FROM pvd_assignments WHERE date = ? ORDER BY window_hour ASC, start_minute ASC'
         ).bind(targetDateStr).all();
 
-        const now = new Date();
-        const currentDateStr = now.toISOString().split('T')[0];
         const isToday = targetDateStr === currentDateStr;
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const currentMinutes = zoned.hour * 60 + zoned.minute;
 
         const userMap = new Map();
 
@@ -605,14 +711,14 @@ app.get('/api/assignments', authMiddleware, async (c) => {
         return c.json(Array.from(userMap.values()));
     } catch (err) {
         console.error(err);
-        return c.json({ error: 'Database error', message: err.message }, 500);
+        return c.json({ error: 'Database error', message: 'Error interno al consultar las asignaciones.' }, 500);
     }
 });
 
 // SPA Fallback
 app.get('*', async (c) => {
     if (c.req.path.startsWith('/api/')) {
-        return c.json({ error: 'Not Found' }, 404);
+        return c.json({ error: 'Not Found', message: 'Ruta no encontrada.' }, 404);
     }
     return await c.env.ASSETS.fetch(c.req.raw);
 });

@@ -10,6 +10,21 @@ import { QRCodeSVG } from 'qrcode.react';
 
 axios.defaults.baseURL = '/api';
 
+const getAuthToken = () => sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token');
+const getUserRole = () => sessionStorage.getItem('user_role') || localStorage.getItem('user_role') || '';
+const setAuthSession = (token, role) => {
+    sessionStorage.setItem('auth_token', token);
+    sessionStorage.setItem('user_role', role);
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
+};
+const clearAuthSession = () => {
+    sessionStorage.removeItem('auth_token');
+    sessionStorage.removeItem('user_role');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
+};
+
 function App() {
     const [station, setStation] = useState(null); // Current user station
     const [allStations, setAllStations] = useState([]); // All stations for dashboard
@@ -18,7 +33,7 @@ function App() {
     const [loginInput, setLoginInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loginError, setLoginError] = useState(null);
-    const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || '');
+    const [userRole, setUserRole] = useState(getUserRole());
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedStationIP, setSelectedStationIP] = useState(localStorage.getItem('station_ip') || '');
     const [pvdAssignment, setPvdAssignment] = useState(null);
@@ -34,7 +49,7 @@ function App() {
         }
 
         // Auth Header (JWT)
-        const token = localStorage.getItem('auth_token');
+        const token = getAuthToken();
         if (token) {
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         }
@@ -51,8 +66,7 @@ function App() {
                 
                 if (!isLoginRequest && error.response && (error.response.status === 401 || error.response.status === 403)) {
                     // Token expired or invalid
-                    localStorage.removeItem('auth_token');
-                    localStorage.removeItem('user_role');
+                    clearAuthSession();
                     setStation(null);
                     window.location.reload();
                 }
@@ -284,35 +298,37 @@ function App() {
             });
 
             if (res.data.token) {
-                localStorage.setItem('auth_token', res.data.token);
-                localStorage.setItem('user_role', res.data.role);
+                setAuthSession(res.data.token, res.data.role);
                 setUserRole(res.data.role);
                 axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
             }
 
             if (res.data.pvd) {
                 setPvdAssignment(res.data.pvd);
-                // Alert removed to prevent UI blocking
             }
             fetchData();
         } catch (err) {
-            if (err.response && err.response.data && err.response.data.error === 'ALREADY_LOGGED_IN') {
-                setLoginError('El usuario ya está logado en una estación. Cierra sesión primero.');
+            if (err.response && err.response.data) {
+                if (err.response.data.error === 'TOO_MANY_ATTEMPTS') {
+                    setLoginError(err.response.data.message || 'Demasiados intentos fallidos. Por favor, espere unos minutos.');
+                } else if (err.response.data.error === 'ALREADY_LOGGED_IN') {
+                    setLoginError(err.response.data.message || 'El usuario ya está logado en una estación. Cierra sesión primero.');
+                } else {
+                    setLoginError(err.response.data.message || 'Credenciales incorrectas');
+                }
             } else {
-                setLoginError('Contraseña incorrecta');
+                setLoginError('Error de conexión con el servidor.');
             }
         }
     };
 
     const handleLogout = async () => {
         try {
-            // Optional: Call logout endpoint if needed, but mostly client-side now
             await axios.post('/logout');
         } catch (err) {
             // Check if it's 403/401, ignore
         } finally {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_role');
+            clearAuthSession();
             delete axios.defaults.headers.common['Authorization'];
             setStation(null);
             setPvdAssignment(null);
